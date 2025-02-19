@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Detect distribution
+# Detect distribution and install necessary packages
 if [ -f /etc/os-release ]; then
     . /etc/os-release
     DISTRO=$ID
@@ -9,55 +9,76 @@ else
     exit 1
 fi
 
-# Install figlet if not present
-if ! command -v figlet &> /dev/null; then
+# Function to install packages
+install_packages() {
     case "$DISTRO" in
         ubuntu|debian)
-            sudo apt-get update && sudo apt-get install -y figlet
+            sudo apt-get update
+            sudo apt-get install -y figlet bc
             ;;
         fedora)
-            sudo dnf install -y figlet
+            sudo dnf install -y figlet bc
             ;;
         arch)
-            sudo pacman -Sy figlet
+            sudo pacman -Sy figlet bc
             ;;
         *)
-            echo "Unsupported distribution for automatic figlet installation."
+            echo "Unsupported distribution for automatic installation."
             exit 1
             ;;
     esac
+}
+
+# Check and install figlet and bc if not present
+if ! command -v figlet &> /dev/null || ! command -v bc &> /dev/null; then
+    install_packages
 fi
 
-# Create MOTD message
+# Define the MOTD file
 MOTD_FILE="/etc/motd"
 
 # Gather system information
+IP_ADDRESS=$(hostname -I | awk '{print $1}')
+HOSTNAME=$(hostname)
 CPU_TEMP=""
 if [ -f /sys/class/thermal/thermal_zone0/temp ]; then
     CPU_TEMP=$(echo "scale=1; $(cat /sys/class/thermal/thermal_zone0/temp) / 1000" | bc)
 else
     CPU_TEMP="N/A"
 fi
-
 MEMORY_USAGE=$(free -h | awk '/^Mem:/ {print $3 "/" $2}')
-DISK_USAGE=$(df -h / | awk '/\// {print $3 "/" $2}')
+DISK_USAGE=$(df -h / | awk 'NR==2 {print $3 "/" $2}')
 PING_RESULT=$(ping -c 1 8.8.8.8 &> /dev/null && echo "Online" || echo "Offline")
 
-# Generate the MOTD content
-{
-    echo "###############################################"
-    figlet "JORDAN'S LAB"
-    echo "###############################################"
-    echo ""
-    echo "CPU Temperature: $CPU_TEMP°C"
-    echo "Memory Usage: $MEMORY_USAGE"
-    echo "Disk Usage: $DISK_USAGE"
-    echo "Internet Status: $PING_RESULT"
-    echo ""
-} | sudo tee $MOTD_FILE > /dev/null
+# Create the new MOTD content
+NEW_CONTENT=$(cat << EOF
+
+$(figlet "JORDAN'S LAB")
+
+
+Welcome to my Homelab!
+
+System Information:
+-------------------
+IP Address       : $IP_ADDRESS
+Hostname         : $HOSTNAME
+CPU Temperature  : $CPU_TEMP°C
+Memory Usage     : $MEMORY_USAGE
+Disk Usage       : $DISK_USAGE
+Internet Status  : $PING_RESULT
+
+EOF
+)
+
+# Backup the existing MOTD
+sudo cp $MOTD_FILE ${MOTD_FILE}.bak
+
+# Remove existing '#' border lines and append new content
+sudo sed -i '/^#.*$/d' $MOTD_FILE
+echo "$NEW_CONTENT" | sudo tee -a $MOTD_FILE > /dev/null
 
 # Apply correct permissions
 sudo chmod 644 $MOTD_FILE
 
 # Notify user
-echo "MOTD successfully updated with 'JORDAN'S LAB' message and system information."
+echo "MOTD successfully updated with 'JORDAN'S LAB' banner and system information."
